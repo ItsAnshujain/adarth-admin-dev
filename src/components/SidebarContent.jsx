@@ -118,13 +118,43 @@ const SidebarContent = ({ className }) => {
         icon: GalleryIcon,
         acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
       },
-
+      
       {
         label: 'Leads',
         path: '/leads/leads-dashboard',
         icon: LeadsIcon,
         acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
       },
+      {
+        label: 'Reports_new',
+        path: '/newReports',
+        icon: ReportIcon,
+        acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
+      },
+      // {
+      //   label: 'Ranking_report',
+      //   path: '/performanceReport',
+      //   icon: ReportIcon,
+      //   acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
+      // },
+      // {
+      //   label: 'TagWise_repo',
+      //   path: '/tagsWiseReport',
+      //   icon: ReportIcon,
+      //   acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
+      // },
+      // {
+      //   label: 'mediawiseRepo',
+      //   path: '/mediaWiseReport',
+      //   icon: ReportIcon,
+      //   acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
+      // },
+      // {
+      //   label: 'SampleRepo',
+      //   path: '/sampleReport',
+      //   icon: ReportIcon,
+      //   acceptedRoles: [ROLES.ADMIN, ROLES.MANAGEMENT, ROLES.SUPERVISOR, ROLES.ASSOCIATE],
+      // },
     ],
     [isMasterLoaded],
   );
@@ -165,7 +195,7 @@ const SidebarContent = ({ className }) => {
               toggleNestedTab={toggleNestedTab}
             />
           </div>
-        </RoleBased>
+         </RoleBased>
       ))}
     </div>
   );

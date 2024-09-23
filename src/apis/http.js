@@ -1,6 +1,9 @@
 import { USER_TOKEN_ID_KEY } from '../utils/config';
 
 const API_URL = import.meta.env.VITE_API_BASE_URL;
+console.log('Environment Variables:', import.meta.env);
+
+console.log("API URL: ", API_URL);
 /**
  * Generate HTTP headers
  * @param {Object} headers

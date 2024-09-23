@@ -452,6 +452,8 @@ const InventoryDashboardPage = () => {
     }
   }, [debouncedSearch]);
 
+  console.log("inventory data", inventoryData?.docs)
+
   return (
     <div className="col-span-12 md:col-span-12 lg:col-span-10 border-l border-gray-450 overflow-y-auto px-5">
       <FormProvider form={form}>

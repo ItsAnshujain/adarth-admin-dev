@@ -91,6 +91,8 @@ const AddOperationalCostModal = ({
       sortOrder: 'asc',
     }),
   );
+ 
+  console.log("op data", operationalCostData);
 
   const {
     data: bookingDatas,

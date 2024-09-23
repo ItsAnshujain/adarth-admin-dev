@@ -373,10 +373,10 @@ const BookingsDashboardPage = () => {
       },
       {
         Header: 'PRICING',
-        accessor: 'campaign.price',
+        accessor: 'campaign.totalPrice',
         Cell: ({
           row: {
-            original: { campaign, _id },
+            original: { campaign }
           },
         }) =>
           useMemo(
@@ -393,12 +393,12 @@ const BookingsDashboardPage = () => {
                 </ActionIcon>
               </div>
             ),
-            [],
+            []
           ),
       },
       {
         Header: 'OUTSTANDING PO',
-        accessor: 'campaign.outstandingPO',
+        accessor: 'outStandingPurchaseOrder',
         Cell: ({
           row: {
             original: { outStandingPurchaseOrder },
@@ -407,7 +407,7 @@ const BookingsDashboardPage = () => {
       },
       {
         Header: 'OUTSTANDING RO',
-        accessor: 'campaign.outstandingRO',
+        accessor: 'outStandingReleaseOrder',
         Cell: ({
           row: {
             original: { outStandingReleaseOrder },
@@ -416,7 +416,7 @@ const BookingsDashboardPage = () => {
       },
       {
         Header: 'OUTSTANDING INVOICE',
-        accessor: 'campaign.outstandingInvoice',
+        accessor: 'outStandingInvoice',
         Cell: ({
           row: {
             original: { outStandingInvoice },
@@ -581,6 +581,7 @@ const BookingsDashboardPage = () => {
           },
         }) => useMemo(() => <BookingsMenuPopover itemId={_id} />, []),
       },
+      
     ],
     [bookingData?.docs, campaignStatus, paymentStatus],
   );

@@ -4,10 +4,22 @@ import {
   addOperationalCost,
   deleteOperationalCost,
   fetchOperationalCost,
+  fetchOperationalCostData,
   updateOperationalCost,
 } from '../requests/operationalCost.requests';
 import { onApiError } from '../../utils';
 
+export const useFetchOperationalCostData = (enabled = true) => {
+
+  return useQuery(
+    ['operational-cost-data'],
+    async () => {
+      const res = await fetchOperationalCostData();
+      return res?.data;
+    },
+    { enabled },
+  );
+};
 export const useFetchOperationalCost = (inventoryId, enabled = true) => {
   const queryClient = useQueryClient();
 

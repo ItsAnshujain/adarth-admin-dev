@@ -1,4 +1,12 @@
-import { ActionIcon, Badge, Box, Group, Image as MantineImage, Radio, Text } from '@mantine/core';
+import {
+  ActionIcon,
+  Badge,
+  Box,
+  Group,
+  Image as MantineImage,
+  Radio,
+  Text,
+} from '@mantine/core';
 import { ChevronDown } from 'react-feather';
 import { useMemo, useState } from 'react';
 import { Dropzone } from '@mantine/dropzone';

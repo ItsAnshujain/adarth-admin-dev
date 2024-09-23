@@ -1,4 +1,4 @@
-import { ActionIcon, Box, Button, Group } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, Input, TextInput } from '@mantine/core';
 import React, { useEffect, useRef } from 'react';
 import { Controller, FormProvider, useForm } from 'react-hook-form';
 import * as yup from 'yup';
@@ -139,6 +139,7 @@ const AddTermsAndConditionsForm = ({
               )}
             />
           </section>
+          
 
           <Group position="right">
             <Button

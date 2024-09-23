@@ -62,6 +62,7 @@ const Spaces = () => {
   const [drawerOpened, drawerActions] = useDisclosure();
   const watchSpaces = form.watch('spaces') || [];
 
+  const [showDateRangeOptions, setShowDateRangeOptions] = useState(false);
   const { activeLayout, setActiveLayout } = useLayoutView(
     state => ({
       activeLayout: state.activeLayout,
@@ -69,7 +70,7 @@ const Spaces = () => {
     }),
     shallow,
   );
-  const selectedInventoryIds = useMemo(() => watchSpaces.map(space => space._id));
+  const selectedInventoryIds = useMemo(() => watchSpaces.map(space => space._id), [watchSpaces]);
   const [searchParams, setSearchParams] = useSearchParams({
     limit: activeLayout.inventoryLimit || 20,
     page: 1,
@@ -86,89 +87,163 @@ const Spaces = () => {
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
   const [showFilter, setShowFilter] = useState(false);
   const [showSelectColumns, selectColumnsActions] = useDisclosure(false);
+
   const pages = searchParams.get('page');
   const limit = searchParams.get('limit');
   const { data: inventoryData, isLoading } = useFetchInventory(searchParams.toString());
 
   const toggleFilter = () => setShowFilter(!showFilter);
 
-  const updateData = debounce((key, val, id, inputId) => {
+  const handleDateRangeChange = (startDate, endDate, id) => {
+    setShowDateRangeOptions(prev => ({
+      ...prev,
+      [id]: true,
+    }));
+
+    updateData('dateRange', [startDate, endDate], id, null, false);
+  };
+
+  const applyDateRangeToAll = (startDate, endDate) => {
+    const selectedIds = watchSpaces.map(space => space._id);
+
+    updateData('dateRange', [startDate, endDate], null, null, true, selectedIds);
+    setShowDateRangeOptions({});
+  };
+
+  const updateData = debounce((key, val, id, inputId, applyToAll, selectedIds = []) => {
     if (key === 'dateRange') {
-      let availableUnit = 0;
-      const space = watchSpaces.find(item => item._id === id);
-      const hasChangedUnit = space?.hasChangedUnit;
-
-      setUpdatedInventoryData(prev => {
-        const newList = [...prev];
-        const index = newList.findIndex(item => item._id === id);
-        newList[index] = { ...newList[index], startDate: val[0], endDate: val[1] };
-
-        availableUnit = getAvailableUnits(
-          newList[index].bookingRange,
-          newList[index].startDate,
-          newList[index].endDate,
-          newList[index].originalUnit,
-        );
-        newList[index] = {
-          ...newList[index],
-          availableUnit,
-          displayCostPerMonth: space.displayCostPerMonth,
-        };
-
-        return newList;
-      });
-
       const totalMonths = calculateTotalMonths(val[0], val[1]);
 
+      setUpdatedInventoryData(prev => {
+        return prev.map(item => {
+          const space = watchSpaces.find(sp => sp._id === item._id);
+          const availableUnit = getAvailableUnits(
+            item.bookingRange,
+            val[0],
+            val[1],
+            item.originalUnit,
+          );
+
+          if (applyToAll && selectedIds.includes(item._id)) {
+            return {
+              ...item,
+              startDate: val[0],
+              endDate: val[1],
+              availableUnit,
+              displayCostPerMonth: space?.displayCostPerMonth || 0,
+              displayCostPerSqFt:
+                calculateTotalArea(item, item.unit) > 0
+                  ? Number(
+                      (
+                        (item.displayCostPerMonth || 0) / calculateTotalArea(item, item.unit)
+                      ).toFixed(2),
+                    )
+                  : 0,
+              totalDisplayCost:
+                calculateTotalArea(item, item.unit) > 0
+                  ? (item.displayCostPerMonth || 0) * totalMonths
+                  : 0,
+              totalPrintingCost: calculateTotalPrintingOrMountingCost(
+                item,
+                item.unit,
+                item.printingCostPerSqft || 0,
+                0,
+              ),
+              totalMountingCost: calculateTotalPrintingOrMountingCost(
+                item,
+                item.unit,
+                item.mountingCostPerSqft || 0,
+                0,
+              ),
+              price: calculateTotalCostOfBooking(item, item.unit, val[0], val[1]),
+            };
+          } else if (item._id === id) {
+            return {
+              ...item,
+              startDate: val[0],
+              endDate: val[1],
+              availableUnit,
+              displayCostPerMonth: space?.displayCostPerMonth || 0,
+              displayCostPerSqFt:
+                calculateTotalArea(item, item.unit) > 0
+                  ? Number(
+                      (
+                        (item.displayCostPerMonth || 0) / calculateTotalArea(item, item.unit)
+                      ).toFixed(2),
+                    )
+                  : 0,
+              totalDisplayCost:
+                calculateTotalArea(item, item.unit) > 0
+                  ? (item.displayCostPerMonth || 0) * totalMonths
+                  : 0,
+              totalPrintingCost: calculateTotalPrintingOrMountingCost(
+                item,
+                item.unit,
+                item.printingCostPerSqft || 0,
+                0,
+              ),
+              totalMountingCost: calculateTotalPrintingOrMountingCost(
+                item,
+                item.unit,
+                item.mountingCostPerSqft || 0,
+                0,
+              ),
+              price: calculateTotalCostOfBooking(item, item.unit, val[0], val[1]),
+            };
+          } else {
+            return item;
+          }
+        });
+      });
+
+      // Update the form values
       form.setValue(
         'spaces',
-        watchSpaces.map(item =>
-          item._id === id
+        watchSpaces.map(item => {
+          const updatedTotalArea = calculateTotalArea(item, item.unit);
+          return applyToAll || item._id === id
             ? {
                 ...item,
                 startDate: val[0],
                 endDate: val[1],
-                ...(!hasChangedUnit ? { unit: availableUnit } : {}),
-                availableUnit,
+                availableUnit: getAvailableUnits(
+                  item.bookingRange,
+                  val[0],
+                  val[1],
+                  item.originalUnit,
+                ),
                 displayCostPerSqFt:
-                  calculateTotalArea(item, item?.unit) > 0
-                    ? Number(
-                        (item.displayCostPerMonth / calculateTotalArea(item, item?.unit)).toFixed(
-                          2,
-                        ),
-                      )
+                  updatedTotalArea > 0
+                    ? Number(((item.displayCostPerMonth || 0) / updatedTotalArea).toFixed(2))
                     : 0,
                 totalDisplayCost:
-                  calculateTotalArea(item, item?.unit) > 0
-                    ? item.displayCostPerMonth * totalMonths
-                    : 0,
+                  updatedTotalArea > 0 ? (item.displayCostPerMonth || 0) * totalMonths : 0,
                 totalPrintingCost: calculateTotalPrintingOrMountingCost(
                   item,
-                  key === 'unit' ? val : item.unit,
-                  item.printingCostPerSqft,
+                  item.unit,
+                  item.printingCostPerSqft || 0,
                   0,
                 ),
                 totalMountingCost: calculateTotalPrintingOrMountingCost(
                   item,
-                  key === 'unit' ? val : item.unit,
-                  item.mountingCostPerSqft,
+                  item.unit,
+                  item.mountingCostPerSqft || 0,
                   0,
                 ),
-                price: calculateTotalCostOfBooking(
-                  item,
-                  key === 'unit' ? val : item.unit,
-                  val[0],
-                  val[1],
-                ),
+                price: calculateTotalCostOfBooking(item, item.unit, val[0], val[1]),
               }
-            : item,
-        ),
+            : item;
+        }),
       );
     } else {
       setUpdatedInventoryData(prev =>
         prev.map(item =>
           item._id === id
-            ? { ...item, [key]: val, ...(key === 'unit' ? { hasChangedUnit: true } : {}) }
+            ? {
+                ...item,
+                [key]: val,
+                ...(key === 'unit' ? { hasChangedUnit: true } : {}),
+              }
             : item,
         ),
       );
@@ -181,26 +256,21 @@ const Spaces = () => {
             ? {
                 ...item,
                 displayCostPerSqFt:
-                  calculateTotalArea(item, item?.unit) > 0
-                    ? Number(
-                        (
-                          item.displayCostPerMonth /
-                          calculateTotalArea(item, key === 'unit' ? val : item?.unit)
-                        ).toFixed(2),
-                      )
+                  updatedTotalArea > 0
+                    ? Number((item.displayCostPerMonth / updatedTotalArea).toFixed(2))
                     : 0,
                 printingCostPerSqft: item.printingCostPerSqft,
                 mountingCostPerSqft: item.mountingCostPerSqft,
                 totalPrintingCost: calculateTotalPrintingOrMountingCost(
                   item,
                   key === 'unit' ? val : item.unit,
-                  item.printingCostPerSqft,
+                  item.printingCostPerSqft || 0,
                   0,
                 ),
                 totalMountingCost: calculateTotalPrintingOrMountingCost(
                   item,
                   key === 'unit' ? val : item.unit,
-                  item.mountingCostPerSqft,
+                  item.mountingCostPerSqft || 0,
                   0,
                 ),
                 totalArea: updatedTotalArea,
@@ -216,9 +286,10 @@ const Spaces = () => {
             : item;
         }),
       );
-      if (inputId) {
-        setTimeout(() => document.querySelector(`#${inputId}`)?.focus());
-      }
+    }
+
+    if (inputId) {
+      setTimeout(() => document.querySelector(`#${inputId}`)?.focus());
     }
   }, 500);
 
@@ -484,31 +555,53 @@ const Spaces = () => {
           }, []),
       },
       {
-        Header: 'PROPOSAL DATE',
+        Header: () => (
+          <div className="flex justify-between">
+            <span title="Tick to apply the same proposal date to the selected rows.">
+              PROPOSAL DATE
+            </span>
+            {/* Render "Apply to All" checkbox in the header */}
+            <div className="pl-44">
+              <input
+                type="checkbox"
+                title="Tick to apply the same proposal date to the selected rows."
+                onChange={e => {
+                  // Get the first selected row's date range or default to null if none are selected
+                  const firstSelectedRow = watchSpaces[0] || {};
+                  if (e.target.checked) {
+                    // If checkbox is checked, apply date range to all selected rows
+                    applyDateRangeToAll(firstSelectedRow.startDate, firstSelectedRow.endDate);
+                  }
+                }}
+              />
+            </div>
+          </div>
+        ),
         accessor: 'scheduledDate',
         disableSortBy: true,
         Cell: ({
           row: {
             original: { bookingRange, startDate, endDate, _id, originalUnit },
           },
-        }) =>
-          useMemo(() => {
-            const isError = watchSpaces.some(item => item._id === _id) && (!startDate || !endDate);
-            const isDisabled = !watchSpaces.some(item => item._id === _id);
-            const everyDayUnitsData = getEveryDayUnits(bookingRange, originalUnit);
-            return (
-              <div className="min-w-[300px]">
-                <DateRangeSelector
-                  error={isError}
-                  dateValue={[startDate || null, endDate || null]}
-                  onChange={val => updateData('dateRange', val, _id)}
-                  everyDayUnitsData={everyDayUnitsData}
-                  disabled={isDisabled}
-                />
-              </div>
-            );
-          }, []),
+        }) => {
+          const isError = watchSpaces.some(item => item._id === _id) && (!startDate || !endDate);
+          const isDisabled = !watchSpaces.some(item => item._id === _id);
+          const everyDayUnitsData = getEveryDayUnits(bookingRange, originalUnit);
+
+          return (
+            <div className="min-w-[300px]">
+              <DateRangeSelector
+                error={isError}
+                dateValue={[startDate || null, endDate || null]}
+                onChange={val => handleDateRangeChange(val[0], val[1], _id)}
+                everyDayUnitsData={everyDayUnitsData}
+                disabled={isDisabled}
+              />
+            </div>
+          );
+        },
       },
+
       {
         Header: 'UNIT',
         accessor: 'specifications.unit',
@@ -627,6 +720,28 @@ const Spaces = () => {
     });
   };
 
+  const handleSortByColumn = colId => {
+    if (searchParams.get('sortBy') === colId && searchParams.get('sortOrder') === 'desc') {
+      searchParams.set('sortOrder', 'asc');
+      setSearchParams(searchParams);
+      return;
+    }
+    if (searchParams.get('sortBy') === colId && searchParams.get('sortOrder') === 'asc') {
+      searchParams.set('sortOrder', 'desc');
+      setSearchParams(searchParams);
+      return;
+    }
+
+    searchParams.set('sortBy', colId);
+    setSearchParams(searchParams);
+  };
+
+  const handleSearch = () => {
+    searchParams.set('search', debouncedSearch);
+    searchParams.set('page', debouncedSearch === '' ? pages : 1);
+    setSearchParams(searchParams);
+  };
+
   const handleSelection = selectedRows => {
     const updatedSelectedRows = selectedRows.map(row => ({
       ...row,
@@ -660,29 +775,6 @@ const Spaces = () => {
       form.setValue('spaces', updatedSelectedRows);
     }
   };
-
-  const handleSortByColumn = colId => {
-    if (searchParams.get('sortBy') === colId && searchParams.get('sortOrder') === 'desc') {
-      searchParams.set('sortOrder', 'asc');
-      setSearchParams(searchParams);
-      return;
-    }
-    if (searchParams.get('sortBy') === colId && searchParams.get('sortOrder') === 'asc') {
-      searchParams.set('sortOrder', 'desc');
-      setSearchParams(searchParams);
-      return;
-    }
-
-    searchParams.set('sortBy', colId);
-    setSearchParams(searchParams);
-  };
-
-  const handleSearch = () => {
-    searchParams.set('search', debouncedSearch);
-    searchParams.set('page', debouncedSearch === '' ? pages : 1);
-    setSearchParams(searchParams);
-  };
-
   const handlePagination = (key, val) => {
     if (val !== '') searchParams.set(key, val);
     else searchParams.delete(key);
@@ -723,6 +815,7 @@ const Spaces = () => {
       }
       handleSortRowsOnTop(watchSpaces, finalData);
       setPagination(page);
+      setUpdatedInventoryData(finalData); // Update the state with the filtered/sorted data
     }
   }, [inventoryData]);
 

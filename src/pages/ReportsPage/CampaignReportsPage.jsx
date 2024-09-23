@@ -119,7 +119,8 @@ const CampaignReportsPage = () => {
     () => ({
       datasets: [
         {
-          data: [stats?.printCompleted ?? 0, stats?.printOngoing ?? 0],
+          // data: [stats?.printCompleted ?? 0, stats?.printOngoing ?? 0],
+          data: [6, 4],
           backgroundColor: ['#914EFB', '#FF900E'],
           borderColor: ['#914EFB', '#FF900E'],
           borderWidth: 1,
@@ -133,7 +134,8 @@ const CampaignReportsPage = () => {
     () => ({
       datasets: [
         {
-          data: [stats?.mountCompleted ?? 0, stats?.mountOngoing ?? 0],
+          // data: [stats?.mountCompleted ?? 0, stats?.mountOngoing ?? 0],
+          data: [1,9],
           backgroundColor: ['#914EFB', '#FF900E'],
           borderColor: ['#914EFB', '#FF900E'],
           borderWidth: 1,
