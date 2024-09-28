@@ -17,9 +17,6 @@ import {
   LogarithmicScale,
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
-import Table from '../../components/Table/Table';
-import { useFetchMasters } from '../../apis/queries/masters.queries';
-import { serialize } from '../../utils';
 
 ChartJS.register(
   ArcElement,
@@ -33,7 +30,7 @@ ChartJS.register(
   LogarithmicScale,
 );
 
-const viewBy1 = {
+const viewBy = {
   reset: '',
   past10Years: 'Past 10 Years',
   past5Years: 'Past 5 Years',
@@ -45,7 +42,7 @@ const viewBy1 = {
   customDate: 'Custom Date Range',
 };
 
-const list1 = [
+const list = [
   { label: 'Past 10 Years', value: 'past10Years' },
   { label: 'Past 5 Years', value: 'past5Years' },
   { label: 'Previous Year', value: 'previousYear' },
@@ -75,26 +72,18 @@ const MediaWiseReport = () => {
     sortOrder: 'desc',
   });
 
-  const { data: bookingData } = useBookingsNew(searchParams.toString());
-
-  const [filter, setFilter] = useState('');
-  const [activeView, setActiveView] = useState('');
-  const [secondFilter, setSecondFilter] = useState('');
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
+  const { data: bookingData2 } = useBookingsNew(searchParams.toString());
 
   const today = new Date();
-const threeMonthsAgo = new Date();
-threeMonthsAgo.setMonth(today.getMonth() - 3);
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(today.getMonth() - 3);
 
-  const generateYearRange = (startYear, endYear) => {
-    const years = [];
-    for (let year = startYear; year <= endYear; year++) {
-      years.push(year);
-    }
-    return years;
-  };
-
+  
+  const [startDate1, setStartDate1] = useState(null);
+  const [endDate1, setEndDate1] = useState(null);
+  const [filter4, setFilter4] = useState('');
+  const [activeView4, setActiveView4] = useState('');
+  const [secondFilter, setSecondFilter] = useState('');
   const generatePast7Days = () => {
     const past7Days = [];
     for (let i = 0; i < 7; i++) {
@@ -104,15 +93,15 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
     }
     return past7Days;
   };
-  const currentYear = new Date().getFullYear();
+  const transformedData4 = useMemo(() => {
+    if (!bookingData2 || !secondFilter) return {};
 
-  const transformedData = useMemo(() => {
-    if (!bookingData || !secondFilter) return {};
-
-    const past7DaysRange = generatePast7Days();
+    const past7DaysRange = generatePast7Days(); // Ensure it returns dates in 'MM/DD/YYYY' format
     const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth();
+    const fiscalStartMonth = 3; // Fiscal year starts in April (0-indexed)
 
-    const groupedData = bookingData.reduce((acc, booking) => {
+    const groupedData = bookingData2.reduce((acc, booking) => {
       booking.details.forEach(detail => {
         const campaign = detail.campaign;
         if (!campaign || !campaign.spaces || !Array.isArray(campaign.spaces)) return;
@@ -122,37 +111,51 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
           const category = space.basicInformation?.category?.[0]?.name;
           const date = new Date(detail.createdAt);
           const year = date.getFullYear();
-          const month = date.toLocaleString('default', { month: 'short' });
+          const month = date.getMonth(); // 0-indexed
           const day = date.getDate();
-          const formattedDay = `${month} ${day}`; // Use formatted day for specific filters
+          const formattedDay = `${month + 1}/${day}`; // e.g., '4/5' for April 5
           const revenue = booking.totalAmount;
 
           let timeUnit;
-          // Filter-based time unit logic
-          if (filter === 'past10Years' && year >= currentYear - 10 && year < currentYear) {
-            timeUnit = year;
-          } else if (filter === 'past5Years' && year >= currentYear - 5 && year < currentYear) {
-            timeUnit = year;
-          } else if (filter === 'previousYear' && year === currentYear - 1) {
-            timeUnit = month;
-          } else if (filter === 'currentYear' && year === currentYear) {
-            timeUnit = month;
-          } else if (
-            filter === 'currentMonth' &&
-            date.getMonth() === new Date().getMonth() &&
-            year === currentYear
+
+          // Handle fiscal year and quarter logic
+          const fiscalYear = month >= fiscalStartMonth ? year : year - 1; // Fiscal year starts in April
+          const fiscalMonth = (month + 12 - fiscalStartMonth) % 12;
+          const fiscalQuarter = Math.ceil((fiscalMonth + 1) / 3); // Quarterly calculation based on fiscal month
+
+          if (
+            filter4 === 'past10Years' &&
+            fiscalYear >= currentYear - 10 &&
+            fiscalYear < currentYear
           ) {
+            timeUnit = fiscalYear;
+          } else if (
+            filter4 === 'past5Years' &&
+            fiscalYear >= currentYear - 5 &&
+            fiscalYear < currentYear
+          ) {
+            timeUnit = fiscalYear;
+          } else if (filter4 === 'previousYear' && fiscalYear === currentYear - 1) {
+            timeUnit = new Date(0, month).toLocaleString('default', { month: 'short' });
+          } else if (filter4 === 'currentYear' && fiscalYear === currentYear) {
+            timeUnit = new Date(0, month).toLocaleString('default', { month: 'short' });
+          } else if (filter4 === 'currentMonth' && year === currentYear && month === currentMonth) {
+            // Filter for current month
             timeUnit = day;
-          } else if (filter === 'past7' && past7DaysRange.includes(formattedDay)) {
-            timeUnit = formattedDay; // Use day and month for past 7 days
+          } else if (filter4 === 'past7' && past7DaysRange.includes(date.toLocaleDateString())) {
+            // Match bookings in the past 7 days
+            timeUnit = formattedDay;
           } else if (
-            filter === 'customDate' &&
-            date.getTime() >= new Date(startDate).getTime() &&
-            date.getTime() <= new Date(endDate).getTime()
+            filter4 === 'customDate' &&
+            startDate1 &&
+            endDate1 &&
+            date.getTime() >= new Date(startDate1).setHours(0, 0, 0, 0) && // Start of the day for startDate1
+            date.getTime() <= new Date(endDate1).setHours(23, 59, 59, 999) // End of the day for endDate1
           ) {
-            timeUnit = formattedDay; // Use day and month for custom date range
-          } else if (filter === 'quarter') {
-            // Assign quarter based on month
+            // Match bookings in the custom date range
+            timeUnit = formattedDay;
+          } else if (filter4 === 'quarter' && fiscalYear === currentYear) {
+            // Match bookings in the current fiscal year and group by quarter
             const quarterly = Math.ceil((date.getMonth() + 1) / 3);
             timeUnit = `Q${quarterly}`;
           }
@@ -162,40 +165,39 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
           const groupKey = secondFilter === 'mediaType' ? mediaType : category;
           if (!groupKey) return;
 
-          // Ensure structure for mediaType/category and timeUnit
           if (!acc[groupKey]) acc[groupKey] = {};
           if (!acc[groupKey][timeUnit]) acc[groupKey][timeUnit] = 0;
 
-          acc[groupKey][timeUnit] += revenue; // Aggregate revenue
+          acc[groupKey][timeUnit] += revenue;
         });
       });
       return acc;
     }, {});
 
     return groupedData;
-  }, [bookingData, filter, secondFilter, startDate, endDate]);
-  const chartData = useMemo(() => {
-    if (!transformedData || Object.keys(transformedData).length === 0) {
+  }, [bookingData2, filter4, secondFilter, startDate1, endDate1]);
+
+  const chartData4 = useMemo(() => {
+    if (!transformedData4 || Object.keys(transformedData4).length === 0) {
       return { labels: [], datasets: [] };
     }
-  
-    const labels = Object.keys(transformedData);
+
+    const labels = Object.keys(transformedData4);
     const data = labels.map(key => {
-      const revenueData = transformedData[key];
+      const revenueData = transformedData4[key];
       let totalRevenue = 0;
-  
+
       Object.keys(revenueData).forEach(timeUnit => {
         totalRevenue += revenueData[timeUnit] || 0;
       });
-  
-      return totalRevenue / 100000; // Convert to lakhs
+
+      return totalRevenue / 100000; // Convert to lac
     });
-  
-    // Check if all data points are zero
+
     if (data.every(value => value === 0)) {
-      return { labels: [], datasets: [] }; // Return empty data if all are zero
+      return { labels: [], datasets: [] };
     }
-  
+
     const colors = [
       'rgba(255, 99, 132, 1)',
       'rgba(54, 162, 235, 1)',
@@ -204,9 +206,9 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
       'rgba(153, 102, 255, 1)',
       'rgba(255, 159, 64, 1)',
     ];
-  
+
     const datasetColors = labels.map((_, index) => colors[index % colors.length]);
-  
+
     return {
       labels,
       datasets: [
@@ -219,16 +221,16 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
         },
       ],
     };
-  }, [transformedData, secondFilter, filter]);
- 
-  const chartOptions = useMemo(
+  }, [transformedData4, secondFilter, filter4]);
+
+  const chartOptions4 = useMemo(
     () => ({
       scales: {
         y: {
           beginAtZero: true,
           ticks: {
             callback: function (value) {
-              return value + ' L';
+              return value + ' L'; // Display as lac
             },
           },
           title: {
@@ -238,278 +240,101 @@ threeMonthsAgo.setMonth(today.getMonth() - 3);
         },
       },
     }),
-    [filter, transformedData, secondFilter],
+    [filter4, transformedData4, secondFilter],
   );
 
-  const tableData = useMemo(() => {
-    if (!transformedData || Object.keys(transformedData).length === 0) {
-      return [{ [secondFilter === 'category' ? 'category' : 'mediaType']: 'No Data Available' }];
-    }
-  
-    let timeUnits = [];
-  
-    if (filter === 'past10Years' || filter === 'past5Years') {
-      timeUnits =
-        filter === 'past10Years'
-          ? generateYearRange(currentYear - 10, currentYear - 1)
-          : generateYearRange(currentYear - 5, currentYear - 1);
-    } else if (filter === 'previousYear' || filter === 'currentYear') {
-      timeUnits = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-      ];
-    } else if (filter === 'currentMonth') {
-      const daysInMonth = new Date(currentYear, new Date().getMonth() + 1, 0).getDate();
-      timeUnits = Array.from({ length: daysInMonth }, (_, i) => (i + 1).toString());
-    } else if (filter === 'past7') {
-      const past7Days = Array.from({ length: 7 }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        return date.toLocaleString('default', { month: 'short', day: 'numeric' });
-      }).reverse();
-      timeUnits = past7Days;
-    } else if (filter === 'customDate' && startDate && endDate) {
-      const customRangeDates = [];
-      let currentDate = new Date(startDate);
-      while (currentDate <= new Date(endDate)) {
-        customRangeDates.push(
-          currentDate.toLocaleString('default', { month: 'short', day: 'numeric' }),
-        );
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      timeUnits = customRangeDates;
-    } else if (filter === 'quarter') {
-      timeUnits = ['Q1', 'Q2', 'Q3', 'Q4'];
-    }
-  
-    const tableRows = Object.keys(transformedData).map(key => {
-      const row = { [secondFilter === 'category' ? 'category' : 'mediaType']: key };
-      let totalForRow = 0;
-  
-      timeUnits.forEach(timeUnit => {
-        const revenue = transformedData[key][timeUnit] || 0;
-        row[timeUnit] = revenue > 0 ? (revenue / 100000).toFixed(2) : '-';
-        totalForRow += revenue;
-      });
-  
-      row['Grand Total'] = totalForRow > 0 ? (totalForRow / 100000).toFixed(2) : '-';
-      return row;
-    });
-  
-    if (tableRows.length === 0) {
-      return [{ [secondFilter === 'category' ? 'category' : 'mediaType']: 'No Data Available' }];
-    }
-  
-    const grandTotalRow = {
-      [secondFilter === 'category' ? 'category' : 'mediaType']: 'Grand Total',
-    };
-    let overallTotal = 0;
-  
-    timeUnits.forEach(timeUnit => {
-      const total = Object.keys(transformedData).reduce((sum, key) => {
-        return sum + (transformedData[key][timeUnit] || 0);
-      }, 0);
-      grandTotalRow[timeUnit] = total > 0 ? (total / 100000).toFixed(2) : '-';
-      overallTotal += total;
-    });
-  
-    grandTotalRow['Grand Total'] = overallTotal > 0 ? (overallTotal / 100000).toFixed(2) : '-';
-  
-    return [...tableRows, grandTotalRow];
-  }, [transformedData, secondFilter, filter, startDate, endDate]);
-  
-
-  const tableColumns = useMemo(() => {
-    // Dynamic columns based on the current filter
-    const dynamicColumns = [];
-
-    if (filter === 'past10Years' || filter === 'past5Years') {
-      const yearRange =
-        filter === 'past10Years'
-          ? generateYearRange(currentYear - 10, currentYear - 1)
-          : generateYearRange(currentYear - 5, currentYear - 1);
-      yearRange.forEach(year => {
-        dynamicColumns.push({
-          Header: year.toString(),
-          accessor: year.toString(),
-          disableSortBy: true,
-        });
-      });
-    } else if (filter === 'previousYear' || filter === 'currentYear') {
-      const months = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-      months.forEach(month => {
-        dynamicColumns.push({
-          Header: month,
-          accessor: month,
-          disableSortBy: true,
-        });
-      });
-    } else if (filter === 'currentMonth') {
-      const daysInMonth = new Date(currentYear, new Date().getMonth() + 1, 0).getDate();
-      for (let i = 1; i <= daysInMonth; i++) {
-        dynamicColumns.push({
-          Header: i.toString(),
-          accessor: i.toString(),
-          disableSortBy: true,
-        });
-      }
-    } else if (filter === 'past7') {
-      const past7Days = Array.from({ length: 7 }, (_, i) => {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        return date.toLocaleString('default', { month: 'short', day: 'numeric' });
-      }).reverse();
-
-      past7Days.forEach(day => {
-        dynamicColumns.push({
-          Header: day,
-          accessor: day,
-          disableSortBy: true,
-        });
-      });
-    } else if (filter === 'customDate' && startDate && endDate) {
-      const customRangeDates = [];
-      let currentDate = new Date(startDate);
-      while (currentDate <= new Date(endDate)) {
-        customRangeDates.push(
-          currentDate.toLocaleString('default', { month: 'short', day: 'numeric' }),
-        );
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      customRangeDates.forEach(date => {
-        dynamicColumns.push({
-          Header: date,
-          accessor: date,
-          disableSortBy: true,
-        });
-      });
-    } else if (filter === 'quarter') {
-      const quarters = ['Q1', 'Q2', 'Q3', 'Q4'];
-      quarters.forEach(quarter => {
-        dynamicColumns.push({
-          Header: quarter,
-          accessor: quarter,
-          disableSortBy: true,
-        });
-      });
-    }
-
-    return [
-      {
-        Header: secondFilter === 'mediaType' ? 'Media Type' : 'Category',
-        accessor: secondFilter,
-        disableSortBy: true,
-      },
-      ...dynamicColumns,
-      {
-        Header: 'Grand Total',
-        accessor: 'Grand Total',
-        disableSortBy: true,
-      },
-    ];
-  }, [filter, currentYear, startDate, endDate, secondFilter]);
-
-  
-  const onDateChange = val => {
-    setStartDate(val[0]);
-    setEndDate(val[1]);
+  const onDateChange4 = val => {
+    setStartDate1(val[0]);
+    setEndDate1(val[1]);
   };
-  const handleReset = () => {
-    setFilter('');
-    setActiveView('');
+  const handleReset4 = () => {
+    setFilter4('');
+    setActiveView4('');
     setSecondFilter('');
-    setStartDate(null);
-    setEndDate(null);
+    setStartDate1(null);
+    setEndDate1(null);
   };
 
-  const handleMenuItemClick = value => {
-    setFilter(value);
-    setActiveView(value);
+  const handleMenuItemClick4 = value => {
+    setFilter4(value);
+    setActiveView4(value);
   };
+
   return (
-    <div className="flex flex-col col-span-10 overflow-x-hidden">
-      <div className="pt-6 w-[50rem] mx-10">
-        <p className="font-bold ">Filtered Revenue Report</p>
-        <p className="text-sm text-gray-600 italic py-4">
-          This chart shows the filtered revenue data over different time periods.
-        </p>
-        <div className="flex">
-          <div>
-            <Menu shadow="md" width={130}>
-              <Menu.Target>
-                <Button className="secondary-button">
-                  View By: {viewBy1[activeView] || 'Select'}
+      <div className="flex flex-col md:flex-row  w-[60rem] px-4">
+        <div className="pt-6 w-[40rem]">
+          <p className="font-bold ">Media Type / Category Wise Filtered Revenue Report</p>
+          <p className="text-sm text-gray-600 italic py-4">
+            This chart shows the filtered revenue data over different time periods.
+          </p>
+          <div className="flex">
+            <div>
+              <Menu shadow="md" width={130}>
+                <Menu.Target>
+                  <Button className="secondary-button">
+                    View By: {viewBy[activeView4] || 'Select'}
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  {list.map(({ label, value }) => (
+                    <Menu.Item
+                      key={value}
+                      onClick={() => handleMenuItemClick4(value)}
+                      className={classNames(activeView4 === value && 'text-purple-450 font-medium')}
+                    >
+                      {label}
+                    </Menu.Item>
+                  ))}
+                </Menu.Dropdown>
+              </Menu>
+            </div>
+            <div className="mx-2">
+              <Menu shadow="md" width={130}>
+                <Menu.Target>
+                  <Button className="secondary-button">
+                    View By: {viewBy2[secondFilter] || 'Select'}
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  {list2.map(({ label, value }) => (
+                    <Menu.Item
+                      key={value}
+                      onClick={() => setSecondFilter(value)}
+                      className={classNames(
+                        secondFilter === value && 'text-purple-450 font-medium',
+                      )}
+                    >
+                      {label}
+                    </Menu.Item>
+                  ))}
+                </Menu.Dropdown>
+              </Menu>
+            </div>
+            <div>
+              {filter4 && (
+                <Button onClick={handleReset4} className="mx-2 secondary-button">
+                  Reset
                 </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                {list1.map(({ label, value }) => (
-                  <Menu.Item
-                    key={value}
-                    onClick={() => handleMenuItemClick(value)}
-                    className={classNames(activeView === value && 'text-purple-450 font-medium')}
-                  >
-                    {label}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
+              )}
+            </div>
           </div>
-          <div className="mx-2">
-            <Menu shadow="md" width={130}>
-              <Menu.Target>
-                <Button className="secondary-button">
-                  View By: {viewBy2[secondFilter] || 'Select'}
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                {list2.map(({ label, value }) => (
-                  <Menu.Item
-                    key={value}
-                    onClick={() => setSecondFilter(value)}
-                    className={classNames(secondFilter === value && 'text-purple-450 font-medium')}
-                  >
-                    {label}
-                  </Menu.Item>
-                ))}
-              </Menu.Dropdown>
-            </Menu>
-          </div>
-          <div>
-            {filter && (
-              <Button onClick={handleReset} className="mx-2 secondary-button">
-                Reset
-              </Button>
-            )}
+          {filter4 === 'customDate' && (
+            <div className="flex flex-col items-start space-y-4 py-2 ">
+              <DateRangeSelector
+                dateValue={[startDate1, endDate1]}
+                onChange={onDateChange4}
+                minDate={threeMonthsAgo}
+                maxDate={today}
+              />
+            </div>
+          )}
+
+          <div className=" my-4">
+            <Bar data={chartData4} options={chartOptions4} />
           </div>
         </div>
-        {filter === 'customDate' && (
-          <div className="flex flex-col items-start space-y-4 py-2 ">
-            <DateRangeSelector dateValue={[startDate, endDate]} onChange={onDateChange}  minDate={threeMonthsAgo}  // Set minimum date to 3 months ago
-      maxDate={today} />
-          </div>
-        )}
+        
       </div>
-
-      <div className=" m-4 w-[42rem]">
-        <Bar data={chartData} options={chartOptions} />
-      </div>
-      <div className="col-span-12 md:col-span-12 lg:col-span-10 border-gray-450 mx-10">
-        <Table COLUMNS={tableColumns} data={tableData} />
-      </div>
-    </div>
   );
 };
 

@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, useCallback } from 'react';
+import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { Doughnut, Bar, Pie, Line } from 'react-chartjs-2';
 import {
   useUserSalesByUserId,
@@ -45,7 +45,7 @@ import { showNotification } from '@mantine/notifications';
 import quarterOfYear from 'dayjs/plugin/quarterOfYear';
 import ViewByFilter from '../../components/modules/reports/ViewByFilter';
 import { DATE_FORMAT } from '../../utils/constants';
-
+import ChartDataLabels from 'chartjs-plugin-datalabels';
 dayjs.extend(quarterOfYear);
 import {
   Chart as ChartJS,
@@ -59,7 +59,10 @@ import {
   CategoryScale,
   Title,
   LogarithmicScale,
+  Chart,
 } from 'chart.js';
+import { useCampaignStats } from '../../apis/queries/campaigns.queries';
+import { registerables } from 'chart.js';
 
 ChartJS.register(
   ArcElement,
@@ -73,7 +76,7 @@ ChartJS.register(
   Title,
   LogarithmicScale,
 );
-
+Chart.register(...registerables);
 const barDataConfigByIndustry = {
   options: {
     responsive: true,
@@ -215,36 +218,12 @@ const OtherNewReports = () => {
     searchParams3.toString(),
   );
 
-  const sitesData = useMemo(() => {
-    if (!inventoryData?.docs?.length) return { totalTradedAmount: 0 };
-
-    let totalTradedAmount = 0;
-
-    inventoryData.docs.forEach(inventory => {
-      inventory.campaigns?.forEach(campaign => {
-        campaign.place?.forEach(place => {
-          const placeStartDate = new Date(place.startDate);
-          const placeEndDate = new Date(place.endDate);
-
-          if (
-            placeEndDate >= new Date(financialStartDate) &&
-            placeStartDate <= new Date(financialEndDate)
-          ) {
-            totalTradedAmount += place.tradedAmount || 0;
-          }
-        });
-      });
-    });
-
-    return { totalTradedAmount };
-  }, [inventoryData, financialStartDate, financialEndDate]);
-
   const dummyStats = {
     tradedsite: userSales.data?.totalTradedAmount || 0,
     ownsite: userSales.data?.ownSiteSales || 0,
   };
 
-  const printStatusData = useMemo(
+  const printSitesData = useMemo(
     () => ({
       datasets: [
         {
@@ -297,20 +276,22 @@ const OtherNewReports = () => {
     }
   }, [bookingData]);
 
+  
   const aggregateSalesData = data => {
     const aggregated = {};
-
+    
     monthsInShort.forEach((_, index) => {
       aggregated[index] = {};
       pastYears.forEach(year => {
         aggregated[index][year] = 0;
       });
     });
-
+    
     data.forEach(item => {
       try {
         const date = new Date(item.createdAt);
         if (isNaN(date.getTime())) throw new Error('Invalid date');
+        
         const dbMonth = date.getMonth();
         const month = monthMapping[dbMonth];
         const year = date.getFullYear();
@@ -349,60 +330,93 @@ const OtherNewReports = () => {
 
   const trendLineData = useMemo(() => calculateTrendLineData(), [salesData]);
 
+  const chartRef = useRef(null); // Reference to the chart instance
+      
+ 
   const combinedChartData = useMemo(() => {
     const colors = ['#FF6384', '#914EFB', '#36A2EB'];
 
     return {
-      labels: monthsInShort,
-      datasets: [
-        ...pastYears.map((year, idx) => ({
-          label: year,
-          data: salesData.map(data => data[`year${year}`]),
-          backgroundColor: colors[idx % colors.length],
-          borderColor: colors[idx % colors.length],
-          borderWidth: 1,
-          type: 'bar',
-          yAxisID: 'y',
-          order: 1,
-        })),
-        {
-          label: 'Trend',
-          data: trendLineData,
-          borderColor: '#EF4444',
-          fill: false,
-          tension: 0.1,
-          pointBackgroundColor: '#EF4444',
-          type: 'line',
-          order: 2,
-        },
-      ],
+        labels: monthsInShort,
+        datasets: [
+            ...pastYears.map((year, idx) => ({
+                label: year,
+                data: salesData.map(data => data[`year${year}`] || 0), // Fallback to 0 if data not present
+                backgroundColor: colors[idx % colors.length],
+                borderColor: colors[idx % colors.length],
+                borderWidth: 1,
+                type: 'bar',
+                yAxisID: 'y',
+            })),
+            {
+                label: 'Trend',
+                data: trendLineData,
+                borderColor: '#EF4444',
+                fill: false,
+                tension: 0.1,
+                pointBackgroundColor: '#EF4444',
+                type: 'line',
+            },
+        ],
     };
-  }, [salesData, trendLineData]);
+}, [salesData, trendLineData]);
 
-  const combinedChartOptions = useMemo(
-    () => ({
-      responsive: true,
-      scales: {
-        x: {
+const combinedChartOptions = useMemo(() => ({
+  responsive: true,
+  scales: {
+      x: {
           title: {
-            display: true,
-            text: 'Month',
+              display: true,
+              text: 'Month',
           },
-        },
-        y: {
+      },
+      y: {
           title: {
-            display: true,
-            text: 'Sales Amount (lac)',
+              display: true,
+              text: 'Sales Amount (lac)',
           },
           ticks: {
-            callback: value => `${value} L`,
+              callback: value => `${value.toFixed(2)} L`, // Ensure two decimal places on Y-axis
           },
+          beginAtZero: true,
           position: 'left',
-        },
+          max: Math.max(...salesData.map(d => Math.max(d.year2021, d.year2022, d.year2023))) + 20, // Adjust max value
       },
-    }),
-    [],
-  );
+  },
+  plugins: {
+      datalabels: {
+          display: true,
+          anchor: 'end',
+          align: 'end',
+          formatter: (value, context) => {
+              if (context.dataset.type === 'bar' && value > 0) {
+                  return `${value.toFixed(0)}`; // Format the value as "X.XX L"
+              }
+              return ''; // Do not show labels for 0 or trend line
+          },
+          color: '#000', // Label color
+          font: {
+              weight: 'light',
+              size: 10,
+          },
+      },
+      tooltip: {
+          callbacks: {
+              label: context => {
+                  let label = context.dataset.label || '';
+                  if (label) {
+                      label += ': ';
+                  }
+                  if (context.parsed.y !== null) {
+                      label += `${context.parsed.y.toFixed(2)} L`; // Tooltip formatting with two decimal places
+                  }
+                  return label;
+              },
+          },
+      },
+  },
+}), [salesData]);
+
 
   const parentCompaniesQuery = useInfiniteCompanies({
     page: 1,
@@ -546,8 +560,8 @@ const OtherNewReports = () => {
     };
   }, [chartLabels, chartData2]);
 
-  const [filter, setFilter] = useState('');
-  const [activeView, setActiveView] = useState('');
+  const [filter, setFilter] = useState('currentYear');
+  const [activeView, setActiveView] = useState('currentYear');
   const [startDate, setStartDate] = useState(financialStartDate);
   const [endDate, setEndDate] = useState(financialEndDate);
 
@@ -562,11 +576,8 @@ const OtherNewReports = () => {
     return years;
   };
 
-  const sortMonths = (a, b) => {
-    const monthOrder = [
-      'Jan',
-      'Feb',
-      'Mar',
+  const sortFiscalMonths = (a, b) => {
+    const fiscalOrder = [
       'Apr',
       'May',
       'Jun',
@@ -576,176 +587,171 @@ const OtherNewReports = () => {
       'Oct',
       'Nov',
       'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
     ];
-    return monthOrder.indexOf(a) - monthOrder.indexOf(b);
+    return fiscalOrder.indexOf(a) - fiscalOrder.indexOf(b);
   };
-// Sorting logic for fiscal months (April to March)
+  const transformedData = useMemo(() => {
+    if (!bookingData || !bookingData.docs) return {};
 
-const sortFiscalMonths = (a, b) => {
-  const fiscalOrder = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
-  return fiscalOrder.indexOf(a) - fiscalOrder.indexOf(b);
-};
-const transformedData = useMemo(() => {
-  if (!bookingData || !bookingData.docs) return {};
+    const currentYear = new Date().getFullYear();
+    const fiscalStartMonth = 3; // Fiscal year starts in April
 
-  const currentYear = new Date().getFullYear();
-  const fiscalStartMonth = 3; // Fiscal year starts in April
+    const past10YearsRange = generateYearRange(currentYear - 10, currentYear - 1);
+    const past5YearsRange = generateYearRange(currentYear - 5, currentYear - 1);
 
-  const past10YearsRange = generateYearRange(currentYear - 10, currentYear - 1);
-  const past5YearsRange = generateYearRange(currentYear - 5, currentYear - 1);
+    // Calculate start and end dates for the current fiscal year
+    const fiscalYearStart = new Date(currentYear, fiscalStartMonth, 1); // April 1st, current year
+    const fiscalYearEnd = new Date(currentYear + 1, fiscalStartMonth - 1, 31); // March 31st, next year
 
-  // Calculate start and end dates for the current fiscal year
-  const fiscalYearStart = new Date(currentYear, fiscalStartMonth, 1); // April 1st, current year
-  const fiscalYearEnd = new Date(currentYear + 1, fiscalStartMonth - 1, 31); // March 31st, next year
+    // Initialize accumulator with default values
+    const groupedData = bookingData.docs.reduce((acc, booking) => {
+      const date = new Date(booking.createdAt);
+      const year = date.getFullYear();
+      const month = date.getMonth(); // Month is 0-indexed
+      const day = date.getDate();
+      const revenue = parseFloat(booking.totalAmount) || 0; // Ensure revenue is a number, default to 0 if not valid
 
-  // Initialize accumulator with default values
-  const groupedData = bookingData.docs.reduce((acc, booking) => {
-    const date = new Date(booking.createdAt);
-    const year = date.getFullYear();
-    const month = date.getMonth(); // Month is 0-indexed
-    const day = date.getDate();
-    const revenue = parseFloat(booking.totalAmount) || 0; // Ensure revenue is a number, default to 0 if not valid
+      // Initialize nested properties to avoid undefined errors
+      if (!acc.past10Years) acc.past10Years = {};
+      if (!acc.past5Years) acc.past5Years = {};
+      if (!acc.previousYear) acc.previousYear = {};
+      if (!acc.currentYear) acc.currentYear = {};
+      if (!acc.quarter) acc.quarter = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 }; // Explicitly initialize quarters to 0
+      if (!acc.currentMonth) acc.currentMonth = acc.currentMonth || {};
+      if (!acc.past7) acc.past7 = acc.past7 || {};
+      if (!acc.customDate) acc.customDate = acc.customDate || {};
+      // Calculate fiscal year months
+      const fiscalMonth = (month + 12 - fiscalStartMonth) % 12;
 
-    // Initialize nested properties to avoid undefined errors
-    if (!acc.past10Years) acc.past10Years = {};
-    if (!acc.past5Years) acc.past5Years = {};
-    if (!acc.previousYear) acc.previousYear = {};
-    if (!acc.currentYear) acc.currentYear = {};
-    if (!acc.quarter) acc.quarter = { Q1: 0, Q2: 0, Q3: 0, Q4: 0 }; // Explicitly initialize quarters to 0
-    if (!acc.currentMonth)acc.currentMonth = acc.currentMonth || {};
-    if (!acc.past7)acc.past7 = acc.past7 || {};
-    if (!acc.customDate)acc.customDate = acc.customDate || {};
-    // Calculate fiscal year months
-    const fiscalMonth = (month + 12 - fiscalStartMonth) % 12;
-    console.log(`Booking Date: ${date.toISOString()}, Fiscal Month: ${fiscalMonth}, Revenue: ${revenue}`);
-
-    // Only calculate quarters if the booking falls within the current financial year
-    if (date >= fiscalYearStart && date <= fiscalYearEnd) {
-      if (fiscalMonth >= 0 && fiscalMonth <= 2) {
-        acc.quarter.Q1 += revenue;
-        console.log(`Added to Q1. Total Q1 revenue: ${acc.quarter.Q1}`);
-      } else if (fiscalMonth >= 3 && fiscalMonth <= 5) {
-        acc.quarter.Q2 += revenue;
-        console.log(`Added to Q2. Total Q2 revenue: ${acc.quarter.Q2}`);
-      } else if (fiscalMonth >= 6 && fiscalMonth <= 8) {
-        acc.quarter.Q3 += revenue;
-        console.log(`Added to Q3. Total Q3 revenue: ${acc.quarter.Q3}`);
-      } else if (fiscalMonth >= 9 && fiscalMonth <= 11) {
-        acc.quarter.Q4 += revenue;
-        console.log(`Added to Q4. Total Q4 revenue: ${acc.quarter.Q4}`);
+      // Only calculate quarters if the booking falls within the current financial year
+      if (date >= fiscalYearStart && date <= fiscalYearEnd) {
+        if (fiscalMonth >= 0 && fiscalMonth <= 2) {
+          acc.quarter.Q1 += revenue;
+        } else if (fiscalMonth >= 3 && fiscalMonth <= 5) {
+          acc.quarter.Q2 += revenue;
+        } else if (fiscalMonth >= 6 && fiscalMonth <= 8) {
+          acc.quarter.Q3 += revenue;
+        } else if (fiscalMonth >= 9 && fiscalMonth <= 11) {
+          acc.quarter.Q4 += revenue;
+        }
       }
-    }
 
-    // Past 10 years
-    if (year >= currentYear - 10 && year < currentYear) {
-      acc.past10Years[year] = (acc.past10Years[year] || 0) + revenue;
-    }
+      // Past 10 years
+      if (year >= currentYear - 10 && year < currentYear) {
+        acc.past10Years[year] = (acc.past10Years[year] || 0) + revenue;
+      }
 
-    // Past 5 years
-    if (year >= currentYear - 5 && year < currentYear) {
-      acc.past5Years[year] = (acc.past5Years[year] || 0) + revenue;
-    }
+      // Past 5 years
+      if (year >= currentYear - 5 && year < currentYear) {
+        acc.past5Years[year] = (acc.past5Years[year] || 0) + revenue;
+      }
 
-    if (year === currentYear && month === new Date().getMonth()) {
-      acc.currentMonth[day] = (acc.currentMonth[day] || 0) + revenue;
-    }
-    const last7DaysDate = new Date();
-    last7DaysDate.setDate(last7DaysDate.getDate() - 7);
-    if (date >= last7DaysDate) {
-      acc.past7[day] = (acc.past7[day] || 0) + revenue;
-    }
-    if (startDate2 && endDate2 && date >= startDate2 && date <= endDate2) {
-      const key = `${month + 1}/${day}`;
-      acc.customDate[key] = (acc.customDate[key] || 0) + revenue;
-    }
-            
-    // Previous fiscal year (April to March)
-    if (year === currentYear - 1 || (year === currentYear && month < fiscalStartMonth)) {
-      const fiscalMonthName = new Date(0, fiscalMonth).toLocaleString('default', { month: 'short' });
-      acc.previousYear[fiscalMonthName] = (acc.previousYear[fiscalMonthName] || 0) + revenue;
-    }
+      if (year === currentYear && month === new Date().getMonth()) {
+        acc.currentMonth[day] = (acc.currentMonth[day] || 0) + revenue;
+      }
+      const last7DaysDate = new Date();
+      last7DaysDate.setDate(last7DaysDate.getDate() - 7);
+      if (date >= last7DaysDate) {
+        acc.past7[day] = (acc.past7[day] || 0) + revenue;
+      }
+      if (startDate2 && endDate2 && date >= startDate2 && date <= endDate2) {
+        const key = `${month + 1}/${day}`;
+        acc.customDate[key] = (acc.customDate[key] || 0) + revenue;
+      }
 
-    // Current fiscal year (April to March)
-    if (year === currentYear && month >= fiscalStartMonth) {
-      const fiscalMonthName = new Date(0, month).toLocaleString('default', { month: 'short' });
-      acc.currentYear[fiscalMonthName] = (acc.currentYear[fiscalMonthName] || 0) + revenue;
-    }
+      // Previous fiscal year (April to March)
+      if (year === currentYear - 1 || (year === currentYear && month < fiscalStartMonth)) {
+        const fiscalMonthName = new Date(0, fiscalMonth).toLocaleString('default', {
+          month: 'short',
+        });
+        acc.previousYear[fiscalMonthName] = (acc.previousYear[fiscalMonthName] || 0) + revenue;
+      }
 
-    return acc;
-  }, {});
+      // Current fiscal year (April to March)
+      if (year === currentYear && month >= fiscalStartMonth) {
+        const fiscalMonthName = new Date(0, month).toLocaleString('default', { month: 'short' });
+        acc.currentYear[fiscalMonthName] = (acc.currentYear[fiscalMonthName] || 0) + revenue;
+      }
 
-  // Ensure past10Years and past5Years are populated properly
-  groupedData.past10Years = past10YearsRange.map(year => ({
-    year,
-    revenue: groupedData.past10Years[year] || 0,
-  }));
+      return acc;
+    }, {});
 
-  groupedData.past5Years = past5YearsRange.map(year => ({
-    year,
-    revenue: groupedData.past5Years[year] || 0,
-  }));
-
-  // Sort and map previousYear and currentYear data
-  groupedData.previousYear = Object.keys(groupedData.previousYear || {})
-    .sort(sortFiscalMonths)
-    .map(month => ({
-      month,
-      revenue: groupedData.previousYear[month] || 0,
+    // Ensure past10Years and past5Years are populated properly
+    groupedData.past10Years = past10YearsRange.map(year => ({
+      year,
+      revenue: groupedData.past10Years[year] || 0,
     }));
 
-  groupedData.currentYear = Object.keys(groupedData.currentYear || {})
-    .sort(sortFiscalMonths)
-    .map(month => ({
-      month,
-      revenue: groupedData.currentYear[month] || 0,
+    groupedData.past5Years = past5YearsRange.map(year => ({
+      year,
+      revenue: groupedData.past5Years[year] || 0,
     }));
 
-   // Map currentMonth data
-  groupedData.currentMonth = Object.keys(groupedData.currentMonth || {}).map(day => ({
-    day,
-    revenue: groupedData.currentMonth[day] || 0,
-  }));
+    // Sort and map previousYear and currentYear data
+    groupedData.previousYear = Object.keys(groupedData.previousYear || {})
+      .sort(sortFiscalMonths)
+      .map(month => ({
+        month,
+        revenue: groupedData.previousYear[month] || 0,
+      }));
 
-  // Sort and map past7 days data
-  groupedData.past7 = Object.keys(groupedData.past7 || {})
-    .sort((a, b) => new Date(a) - new Date(b))
-    .map(day => ({
+    groupedData.currentYear = Object.keys(groupedData.currentYear || {})
+      .sort(sortFiscalMonths)
+      .map(month => ({
+        month,
+        revenue: groupedData.currentYear[month] || 0,
+      }));
+
+    // Map currentMonth data
+    groupedData.currentMonth = Object.keys(groupedData.currentMonth || {}).map(day => ({
       day,
-      revenue: groupedData.past7[day] || 0,
+      revenue: groupedData.currentMonth[day] || 0,
     }));
 
-  // Map customDate range data
-  groupedData.customDate = Object.keys(groupedData.customDate || {}).map(key => ({
-    day: key,
-    revenue: groupedData.customDate[key] || 0,
-  }));
+    // Sort and map past7 days data
+    groupedData.past7 = Object.keys(groupedData.past7 || {})
+      .sort((a, b) => new Date(a) - new Date(b))
+      .map(day => ({
+        day,
+        revenue: groupedData.past7[day] || 0,
+      }));
 
-  // Format quarter data for the current financial year only
-  groupedData.quarter = [
-    { quarter: 'First Quarter', revenue: groupedData.quarter.Q1 || 0 },
-    { quarter: 'Second Quarter', revenue: groupedData.quarter.Q2 || 0 },
-    { quarter: 'Third Quarter', revenue: groupedData.quarter.Q3 || 0 },
-    { quarter: 'Fourth Quarter', revenue: groupedData.quarter.Q4 || 0 },
-  ];
+    // Map customDate range data
+    groupedData.customDate = Object.keys(groupedData.customDate || {}).map(key => ({
+      day: key,
+      revenue: groupedData.customDate[key] || 0,
+    }));
 
+    // Format quarter data for the current financial year only
+    groupedData.quarter = [
+      { quarter: 'First Quarter', revenue: groupedData.quarter.Q1 || 0 },
+      { quarter: 'Second Quarter', revenue: groupedData.quarter.Q2 || 0 },
+      { quarter: 'Third Quarter', revenue: groupedData.quarter.Q3 || 0 },
+      { quarter: 'Fourth Quarter', revenue: groupedData.quarter.Q4 || 0 },
+    ];
 
-  console.log('Final Quarter Data:', groupedData.quarter);
-
-  return groupedData;
-}, [bookingData, startDate2, endDate2]);
-
+    return groupedData;
+  }, [bookingData, startDate2, endDate2]);
 
   const chartData1 = useMemo(() => {
-    let selectedData = transformedData[filter] || [];
+    // Default to 'currentYear' if no valid filter is set
+    let selectedData = transformedData[filter] || transformedData.currentYear || [];
+  
+    // Format the selected data based on the filter
     const filteredData = selectedData.map(d => ({
       ...d,
-      revenue: d.revenue > 0 ? d.revenue / 100000 : 0,
+      revenue: d.revenue > 0 ? d.revenue / 100000 : 0, // Convert revenue to lacs
     }));
-
+  
+    // If filter is 'customDate', ensure data is sorted by date
     if (filter === 'customDate') {
       filteredData.sort((a, b) => new Date(a.day) - new Date(b.day));
     }
-
+  
+    // Return the chart data
     return {
       labels: filteredData.map(d => d.year || d.month || d.quarter || d.day),
       datasets: [
@@ -759,7 +765,7 @@ const transformedData = useMemo(() => {
       ],
     };
   }, [transformedData, filter]);
-
+  
   const chartOptions1 = useMemo(
     () => ({
       responsive: true,
@@ -768,7 +774,7 @@ const transformedData = useMemo(() => {
           title: {
             display: true,
             text:
-              filter === 'year'
+              filter === 'past10Years' || filter==='past5Years'
                 ? 'Years'
                 : filter === 'quarter'
                 ? 'Quarters'
@@ -776,7 +782,7 @@ const transformedData = useMemo(() => {
                 ? 'Months'
                 : ['past7', 'customDate', 'currentMonth'].includes(filter)
                 ? 'Days'
-                : '',
+                : '', // Default to an empty string if no match
           },
           ticks: {
             callback: function (value, index, values) {
@@ -793,7 +799,7 @@ const transformedData = useMemo(() => {
             text: 'Revenue (lac)',
           },
           ticks: {
-            callback: value => `${value} L`,
+            callback: value => `${value} L`, // Display the value in Lacs
           },
         },
       },
@@ -806,7 +812,7 @@ const transformedData = useMemo(() => {
                 label += ': ';
               }
               if (context.parsed.y !== null) {
-                label += `${context.parsed.y} L`;
+                label += `${context.parsed.y} L`; // Format the tooltip to show Lacs
               }
               return label;
             },
@@ -814,9 +820,10 @@ const transformedData = useMemo(() => {
         },
       },
     }),
-    [filter, transformedData]
+    [filter, transformedData] // Dynamically update when filter or data changes
   );
   
+
   const onDateChange = val => {
     setStartDate2(val[0]);
     setEndDate2(val[1]);
@@ -828,8 +835,8 @@ const transformedData = useMemo(() => {
   };
 
   const handleReset = () => {
-    setFilter('');
-    setActiveView('');
+    setFilter('currentYear');
+    setActiveView('currentYear');
     setStartDate2(null);
     setEndDate2(null);
   };
@@ -933,7 +940,7 @@ const transformedData = useMemo(() => {
   // traded margin report
 
   // invoice report
-  const [activeView1, setActiveView1] = useState('');
+  const [activeView1, setActiveView1] = useState('currentYear');
 
   const formatMonthYear1 = date => {
     const newDate = new Date(date);
@@ -1065,7 +1072,7 @@ const transformedData = useMemo(() => {
   };
 
   const handleReset1 = () => {
-    setActiveView1('');
+    setActiveView1('currentYear');
   };
 
   const invoiceRaised = groupedData1?.reduce((acc, item) => acc + item.outStandingInvoice, 0);
@@ -1255,25 +1262,25 @@ const transformedData = useMemo(() => {
   };
   const transformedData3 = useMemo(() => {
     if (!bookingData2 || !selectedTags.length) return {};
-  
+
     const past7DaysRange = generatePast7Days(); // Ensure this returns dates in a consistent format
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth(); // 0-indexed month
     const fiscalStartMonth = 3; // Fiscal year starts in April (0-indexed)
-  
+
     const groupedData = bookingData2.reduce((acc, booking) => {
       const detailsWithTags = booking.details.filter(detail => {
         const campaign = detail.campaign;
         if (!campaign || !campaign.spaces || !Array.isArray(campaign.spaces)) return false;
-  
+
         return campaign.spaces.some(space => {
           const spaceTags = space.specifications?.additionalTags || [];
           return Array.isArray(spaceTags) && selectedTags.some(tag => spaceTags.includes(tag));
         });
       });
-  
+
       if (detailsWithTags.length === 0) return acc;
-  
+
       detailsWithTags.forEach(detail => {
         const date = new Date(detail.createdAt);
         const year = date.getFullYear();
@@ -1281,20 +1288,20 @@ const transformedData = useMemo(() => {
         const day = date.getDate();
         const formattedDay = `${month + 1}/${day}`; // e.g., '4/5' for April 5
         const revenue = booking.totalAmount;
-  
+
         selectedTags.forEach(tag => {
           const tagMatches = detail.campaign.spaces.some(space =>
             space.specifications?.additionalTags?.includes(tag),
           );
           if (!tagMatches) return;
-  
+
           let timeUnit;
-  
+
           // Handle fiscal year and quarter logic
-          const fiscalYear = (month >= fiscalStartMonth) ? year : year - 1; // Fiscal year starts in April
+          const fiscalYear = month >= fiscalStartMonth ? year : year - 1; // Fiscal year starts in April
           const fiscalMonth = (month + 12 - fiscalStartMonth) % 12; // Shift months according to fiscal year
           const fiscalQuarter = Math.ceil((fiscalMonth + 1) / 3); // Quarterly calculation based on fiscal month
-  
+
           // TimeUnit Assignments for Different Filters
           if (filter3 === 'past10Years' && fiscalYear >= currentYear - 10) {
             timeUnit = fiscalYear;
@@ -1304,11 +1311,7 @@ const transformedData = useMemo(() => {
             timeUnit = date.toLocaleString('default', { month: 'short' });
           } else if (filter3 === 'currentYear' && fiscalYear === currentYear) {
             timeUnit = date.toLocaleString('default', { month: 'short' });
-          } else if (
-            filter3 === 'currentMonth' &&
-            year === currentYear &&
-            month === currentMonth
-          ) {
+          } else if (filter3 === 'currentMonth' && year === currentYear && month === currentMonth) {
             timeUnit = day;
           } else if (filter3 === 'past7' && past7DaysRange.includes(date.toLocaleDateString())) {
             // Match bookings in the past 7 days
@@ -1323,51 +1326,56 @@ const transformedData = useMemo(() => {
             timeUnit = formattedDay;
           } else if (filter3 === 'quarter' && fiscalYear === currentYear) {
             // Handle fiscal year quarters
-            const quarterNames = ['First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter'];
+            const quarterNames = [
+              'First Quarter',
+              'Second Quarter',
+              'Third Quarter',
+              'Fourth Quarter',
+            ];
             timeUnit = quarterNames[fiscalQuarter - 1];
           }
-  
+
           if (!timeUnit) return;
-  
+
           if (!acc[timeUnit]) acc[timeUnit] = {};
           if (!acc[timeUnit][tag]) acc[timeUnit][tag] = 0;
-  
+
           acc[timeUnit][tag] += revenue;
         });
       });
-  
+
       return acc;
     }, {});
-  
+
     return groupedData;
   }, [bookingData2, selectedTags, filter3, startDate1, endDate1]);
-  
+
   const chartData3 = useMemo(() => {
     const selectedData = transformedData3 || {};
-  
+
     if (!selectedData || Object.keys(selectedData).length === 0) {
       return {
         labels: [],
         datasets: [],
       };
     }
-  
+
     let labels = Object.keys(selectedData);
-  
+
     if (filter3 === 'quarter') {
       labels = ['First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter'];
     }
-  
+
     const datasets = selectedTags.map((tag, index) => {
       const data = labels.map(label => {
         const tagRevenue = selectedData[label]?.[tag] || 0;
         return tagRevenue > 0 ? tagRevenue / 100000 : 0;
       });
-  
+
       const hue = ((index * 360) / selectedTags.length) % 360;
       const color = `hsl(${hue}, 70%, 50%)`;
       const colorRGBA = `hsla(${hue}, 70%, 50%, 0.2)`;
-  
+
       return {
         label: ` ${tag} `,
         data,
@@ -1376,13 +1384,13 @@ const transformedData = useMemo(() => {
         tension: 0.1,
       };
     });
-  
+
     return {
       labels,
       datasets,
     };
   }, [transformedData3, selectedTags, filter3]);
-  
+
   const chartOptions3 = useMemo(
     () => ({
       responsive: true,
@@ -1431,7 +1439,6 @@ const transformedData = useMemo(() => {
     }),
     [filter3, transformedData3],
   );
-  
 
   const onDateChange3 = val => {
     setStartDate1(val[0]);
@@ -1457,9 +1464,9 @@ const transformedData = useMemo(() => {
     if (!transformedData3 || Object.keys(transformedData3).length === 0) {
       return [];
     }
-  
+
     let timeUnits = [];
-  
+
     if (filter3 === 'past10Years' || filter3 === 'past5Years') {
       timeUnits =
         filter3 === 'past10Years'
@@ -1467,8 +1474,18 @@ const transformedData = useMemo(() => {
           : generateYearRange(currentYear - 5, currentYear - 1);
     } else if (filter3 === 'previousYear' || filter3 === 'currentYear') {
       timeUnits = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul',
-        'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
     } else if (filter3 === 'currentMonth') {
       const daysInMonth = new Date(currentYear, new Date().getMonth() + 1, 0).getDate();
@@ -1484,35 +1501,34 @@ const transformedData = useMemo(() => {
       const customRangeDates = [];
       let currentDate = new Date(startDate1);
       while (currentDate <= new Date(endDate1)) {
-        customRangeDates.push(
-          currentDate.toLocaleString('default', { month: 'short', day: 'numeric' }),
-        );
+        // Format as M/D
+        const formattedDate = `${currentDate.getMonth() + 1}/${currentDate.getDate()}`;
+        customRangeDates.push(formattedDate);
         currentDate.setDate(currentDate.getDate() + 1);
       }
       timeUnits = customRangeDates;
     } else if (filter3 === 'quarter') {
       timeUnits = ['First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter'];
     }
-  
+
     const tableRows3 = selectedTags.map(tag => {
       const row = { tag };
       let totalForTag = 0;
+
       timeUnits.forEach(timeUnit => {
-        // For custom date, ensure the formatted day is correct
-        const formattedRevenueKey = (filter3 === 'customDate') ? timeUnit : timeUnit;
-  
-        const revenue = transformedData3[formattedRevenueKey]?.[tag] || 0;
+        // Directly use timeUnit since it's already formatted as M/D
+        const revenue = transformedData3[timeUnit]?.[tag] || 0;
         row[timeUnit] = revenue > 0 ? (revenue / 100000).toFixed(2) : '-';
         totalForTag += revenue;
       });
-  
+
       row['Grand Total'] = totalForTag > 0 ? (totalForTag / 100000).toFixed(2) : '-';
       return row;
     });
-  
+
     const grandTotalRow = { tag: 'Grand Total' };
     let overallTotal = 0;
-  
+
     timeUnits.forEach(timeUnit => {
       const total = selectedTags.reduce((sum, tag) => {
         return sum + (transformedData3[timeUnit]?.[tag] || 0);
@@ -1520,12 +1536,12 @@ const transformedData = useMemo(() => {
       grandTotalRow[timeUnit] = total > 0 ? (total / 100000).toFixed(2) : '-';
       overallTotal += total;
     });
-  
+
     grandTotalRow['Grand Total'] = overallTotal > 0 ? (overallTotal / 100000).toFixed(2) : 0;
-  
+
     return [...tableRows3, grandTotalRow];
   }, [transformedData3, selectedTags, filter3, startDate1, endDate1]);
-  
+
   const tableColumns3 = useMemo(() => {
     const dynamicColumns = [];
 
@@ -1635,17 +1651,17 @@ const transformedData = useMemo(() => {
   const [secondFilter, setSecondFilter] = useState('');
   const transformedData4 = useMemo(() => {
     if (!bookingData2 || !secondFilter) return {};
-  
+
     const past7DaysRange = generatePast7Days(); // Ensure it returns dates in 'MM/DD/YYYY' format
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth();
     const fiscalStartMonth = 3; // Fiscal year starts in April (0-indexed)
-  
+
     const groupedData = bookingData2.reduce((acc, booking) => {
       booking.details.forEach(detail => {
         const campaign = detail.campaign;
         if (!campaign || !campaign.spaces || !Array.isArray(campaign.spaces)) return;
-  
+
         campaign.spaces.forEach(space => {
           const mediaType = space.basicInformation?.mediaType?.name;
           const category = space.basicInformation?.category?.[0]?.name;
@@ -1655,27 +1671,31 @@ const transformedData = useMemo(() => {
           const day = date.getDate();
           const formattedDay = `${month + 1}/${day}`; // e.g., '4/5' for April 5
           const revenue = booking.totalAmount;
-  
+
           let timeUnit;
-  
+
           // Handle fiscal year and quarter logic
-          const fiscalYear = (month >= fiscalStartMonth) ? year : year - 1; // Fiscal year starts in April
+          const fiscalYear = month >= fiscalStartMonth ? year : year - 1; // Fiscal year starts in April
           const fiscalMonth = (month + 12 - fiscalStartMonth) % 12;
           const fiscalQuarter = Math.ceil((fiscalMonth + 1) / 3); // Quarterly calculation based on fiscal month
-  
-          if (filter4 === 'past10Years' && fiscalYear >= currentYear - 10 && fiscalYear < currentYear) {
+
+          if (
+            filter4 === 'past10Years' &&
+            fiscalYear >= currentYear - 10 &&
+            fiscalYear < currentYear
+          ) {
             timeUnit = fiscalYear;
-          } else if (filter4 === 'past5Years' && fiscalYear >= currentYear - 5 && fiscalYear < currentYear) {
+          } else if (
+            filter4 === 'past5Years' &&
+            fiscalYear >= currentYear - 5 &&
+            fiscalYear < currentYear
+          ) {
             timeUnit = fiscalYear;
           } else if (filter4 === 'previousYear' && fiscalYear === currentYear - 1) {
             timeUnit = new Date(0, month).toLocaleString('default', { month: 'short' });
           } else if (filter4 === 'currentYear' && fiscalYear === currentYear) {
             timeUnit = new Date(0, month).toLocaleString('default', { month: 'short' });
-          } else if (
-            filter4 === 'currentMonth' &&
-            year === currentYear &&
-            month === currentMonth
-          ) {
+          } else if (filter4 === 'currentMonth' && year === currentYear && month === currentMonth) {
             // Filter for current month
             timeUnit = day;
           } else if (filter4 === 'past7' && past7DaysRange.includes(date.toLocaleDateString())) {
@@ -1695,45 +1715,45 @@ const transformedData = useMemo(() => {
             const quarterly = Math.ceil((date.getMonth() + 1) / 3);
             timeUnit = `Q${quarterly}`;
           }
-  
+
           if (!timeUnit) return;
-  
+
           const groupKey = secondFilter === 'mediaType' ? mediaType : category;
           if (!groupKey) return;
-  
+
           if (!acc[groupKey]) acc[groupKey] = {};
           if (!acc[groupKey][timeUnit]) acc[groupKey][timeUnit] = 0;
-  
+
           acc[groupKey][timeUnit] += revenue;
         });
       });
       return acc;
     }, {});
-  
+
     return groupedData;
   }, [bookingData2, filter4, secondFilter, startDate1, endDate1]);
-  
+
   const chartData4 = useMemo(() => {
     if (!transformedData4 || Object.keys(transformedData4).length === 0) {
       return { labels: [], datasets: [] };
     }
-  
+
     const labels = Object.keys(transformedData4);
     const data = labels.map(key => {
       const revenueData = transformedData4[key];
       let totalRevenue = 0;
-  
+
       Object.keys(revenueData).forEach(timeUnit => {
         totalRevenue += revenueData[timeUnit] || 0;
       });
-  
+
       return totalRevenue / 100000; // Convert to lac
     });
-  
+
     if (data.every(value => value === 0)) {
       return { labels: [], datasets: [] };
     }
-  
+
     const colors = [
       'rgba(255, 99, 132, 1)',
       'rgba(54, 162, 235, 1)',
@@ -1742,9 +1762,9 @@ const transformedData = useMemo(() => {
       'rgba(153, 102, 255, 1)',
       'rgba(255, 159, 64, 1)',
     ];
-  
+
     const datasetColors = labels.map((_, index) => colors[index % colors.length]);
-  
+
     return {
       labels,
       datasets: [
@@ -1758,7 +1778,7 @@ const transformedData = useMemo(() => {
       ],
     };
   }, [transformedData4, secondFilter, filter4]);
-  
+
   const chartOptions4 = useMemo(
     () => ({
       scales: {
@@ -1777,7 +1797,7 @@ const transformedData = useMemo(() => {
       },
     }),
     [filter4, transformedData4, secondFilter],
-  )
+  );
   const onDateChange4 = val => {
     setStartDate1(val[0]);
     setEndDate1(val[1]);
@@ -1825,17 +1845,65 @@ const transformedData = useMemo(() => {
   };
   // excel
 
+  // existing campaing card
+  const { data: stats, isLoading: isStatsLoading } = useCampaignStats();
+  const printStatusData = useMemo(
+    () => ({
+      datasets: [
+        {
+          data: [stats?.printCompleted ?? 0, stats?.printOngoing ?? 0],
+          backgroundColor: ['#914EFB', '#FF900E'],
+          borderColor: ['#914EFB', '#FF900E'],
+          borderWidth: 1,
+        },
+      ],
+    }),
+    [stats],
+  );
+
+  const mountStatusData = useMemo(
+    () => ({
+      datasets: [
+        {
+          data: [stats?.mountCompleted ?? 0, stats?.mountOngoing ?? 0],
+          backgroundColor: ['#914EFB', '#FF900E'],
+          borderColor: ['#914EFB', '#FF900E'],
+          borderWidth: 1,
+        },
+      ],
+    }),
+    [stats],
+  );
+  // existing campaing card
+
   return (
     <div className="overflow-y-auto p-3 col-span-10 overflow-hidden">
-     
+      {/* <div className="flex justify-between ">
+    <div className="overflow-y-auto px-3 col-span-10 overflow-hidden">
+      <div className="flex justify-between ">
+        
+        <div className="py-5 flex items-start">
+          <Button
+            leftIcon={<Download size="20" color="white" />}
+            className="primary-button "
+            onClick={handleDownloadExcel}
+            loading={isDownloadLoading}
+            disabled={isDownloadLoading}
+          >
+            Download Income Statement
+          </Button>
+        </div>
+      </div> */}
       <div className="border-2 p-5 border-black">
-        <p className="font-bold py-5 text-lg">Total Revenue </p>
+        <p className="font-bold text-lg"> Revenue </p>
+        <div className="overflow-hidden p-5 ">
+          <RevenueCards />
+        </div>
         <div className="flex flex-col md:flex-row">
           <div className="flex flex-col p-6 w-[30rem]">
-            <p className="font-bold text-center">Sales Trends Report</p>
+            <p className="font-bold text-center">Source Distribution</p>
             <p className="text-sm text-gray-600 italic pt-3">
-              This chart displays a sales trends report, featuring data for "Own Sites" and "Traded
-              Sites".
+            This chart shows the revenue split between "Own Sites" and "Traded Sites".
             </p>
             <div className="flex gap-8 mt-6 justify-center">
               <div className="flex gap-2 items-center">
@@ -1854,19 +1922,19 @@ const transformedData = useMemo(() => {
               </div>
             </div>
             <div className="w-80 mt-4 ">
-              {printStatusData.datasets[0].data.length === 0 ? (
+              {printSitesData.datasets[0].data.length === 0 ? (
                 <p className="text-center">NA</p>
               ) : (
-                <Doughnut options={config.options} data={printStatusData} />
+                <Doughnut options={config.options} data={printSitesData} />
               )}
             </div>
           </div>
           <div className="flex mt-2">
             <div className="flex flex-col gap-4 text-center">
               <div className="flex flex-col gap-4 p-4 items-center min-h-[200px]">
-                <p className="font-bold">Client Company Type Revenue Bifurcation</p>
+                <p className="font-bold">Client Type Distribution</p>
                 <p className="text-sm text-gray-600 italic">
-                  This chart visualizes the revenue distribution by different client company types.{' '}
+                This chart breaks down revenue by client type, including "Direct Clients", "Local Agencies", "National Agencies", and "Government".
                 </p>
                 <div className="w-72">
                   {isLoadingBookingData ? (
@@ -1879,6 +1947,96 @@ const transformedData = useMemo(() => {
                       options={barDataConfigByClient.options}
                       height={200}
                       width={200}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="p-6 w-[50rem]">
+        <p className="font-bold ">Revenue Distribution</p>
+        <p className="text-sm text-gray-600 italic py-4">
+        This line chart shows revenue trends over selected time periods, with revenue displayed in lakhs.
+        </p>
+        <Menu shadow="md" width={130}>
+          <Menu.Target>
+            <Button className="secondary-button">View By: {viewBy[activeView] || 'Select'}</Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            {list.map(({ label, value }) => (
+              <Menu.Item
+                key={value}
+                onClick={() => handleMenuItemClick(value)}
+                className={classNames(
+                  activeView === value && label !== 'Reset' && 'text-purple-450 font-medium',
+                )}
+              >
+                {label}
+              </Menu.Item>
+            ))}
+          </Menu.Dropdown>
+        </Menu>
+
+        {filter && (
+          <Button onClick={handleReset} className="mx-2 secondary-button">
+            Reset
+          </Button>
+        )}
+
+        {filter === 'customDate' && (
+          <div className="flex flex-col items-start space-y-4 py-2 ">
+            <DateRangeSelector dateValue={[startDate2, endDate2]} onChange={onDateChange} />
+          </div>
+        )}
+
+        <div className="my-4">
+          <Line data={chartData1} options={chartOptions1} />
+        </div>
+      </div>
+      <div className={classNames('overflow-y-auto px-5 col-span-10 overflow-x-hidden')}>
+          <div className="my-6 w-[60rem]" id="revenue-pdf">
+            <div className="h-[60px] border-b my-5 border-gray-450 flex ">
+              <ViewByFilter handleViewBy={handleRevenueGraphViewBy} />
+            </div>
+            <div className="flex gap-8">
+              <div className="w-[70%] flex flex-col justify-between min-h-[300px]">
+                <div className="flex justify-between items-center">
+                  <p className="font-bold">Revenue Graph</p>
+                </div>
+                {isRevenueGraphLoading ? (
+                  <Loader className="m-auto" />
+                ) : (
+                  <div className="flex flex-col pl-7 relative">
+                    <p className="transform rotate-[-90deg] absolute left-[-38px] top-[40%] text-sm">
+                      Amount in INR &gt;
+                    </p>
+                    <div className="max-h-[350px]">
+                      <Line
+                        data={updatedReveueGraph}
+                        options={options}
+                        key={updatedReveueGraph.id}
+                        className="w-full"
+                      />
+                    </div>
+                    <p className="text-center text-sm">{timeLegend[groupBy]} &gt;</p>
+                  </div>
+                )}
+              </div>
+              <div className="w-[30%] flex flex-col">
+                <div className="flex justify-between items-start">
+                  <p className="font-bold">Industry wise revenue graph</p>
+                </div>
+                <div className="w-80 m-auto">
+                  {isByIndustryLoading ? (
+                    <Loader className="mx-auto" />
+                  ) : !updatedIndustry.datasets[0].data.length ? (
+                    <p className="text-center">NA</p>
+                  ) : (
+                    <Pie
+                      data={updatedIndustry}
+                      options={barDataConfigByIndustry.options}
+                      key={updatedIndustry.id}
                     />
                   )}
                 </div>
@@ -1999,59 +2157,8 @@ const transformedData = useMemo(() => {
           </div>
         </div>
 
-        <div className={classNames('overflow-y-auto px-5 col-span-10 overflow-x-hidden')}>
-          <div className="my-6 w-[60rem]" id="revenue-pdf">
-            <div className="h-[60px] border-b my-5 border-gray-450 flex justify-end items-center">
-              <ViewByFilter handleViewBy={handleRevenueGraphViewBy} />
-            </div>
-            <div className="flex gap-8">
-              <div className="w-[70%] flex flex-col justify-between min-h-[300px]">
-                <div className="flex justify-between items-center">
-                  <p className="font-bold">Revenue Graph</p>
-                </div>
-                {isRevenueGraphLoading ? (
-                  <Loader className="m-auto" />
-                ) : (
-                  <div className="flex flex-col pl-7 relative">
-                    <p className="transform rotate-[-90deg] absolute left-[-38px] top-[40%] text-sm">
-                      Amount in INR &gt;
-                    </p>
-                    <div className="max-h-[350px]">
-                      <Line
-                        data={updatedReveueGraph}
-                        options={options}
-                        key={updatedReveueGraph.id}
-                        className="w-full"
-                      />
-                    </div>
-                    <p className="text-center text-sm">{timeLegend[groupBy]} &gt;</p>
-                  </div>
-                )}
-              </div>
-              <div className="w-[30%] flex flex-col">
-                <div className="flex justify-between items-start">
-                  <p className="font-bold">Industry wise revenue graph</p>
-                </div>
-                <div className="w-80 m-auto">
-                  {isByIndustryLoading ? (
-                    <Loader className="mx-auto" />
-                  ) : !updatedIndustry.datasets[0].data.length ? (
-                    <p className="text-center">NA</p>
-                  ) : (
-                    <Pie
-                      data={updatedIndustry}
-                      options={barDataConfigByIndustry.options}
-                      key={updatedIndustry.id}
-                    />
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="overflow-hidden px-5 ">
-          <RevenueCards />
-        </div>
+       
+        
       </div>
       <div className="flex p-6 flex-col ">
         <div className="flex justify-between items-center">
@@ -2069,11 +2176,8 @@ const transformedData = useMemo(() => {
           <div className="">
             {salesData.length > 0 ? (
               <div className=" gap-10 ">
-                {/* <div className="pt-4 w-[40rem]">
-                      <Bar data={salesChartData} options={salesChartOptions} />
-                    </div> */}
-                <div className="pt-4 w-[40rem]">
-                  <Bar data={combinedChartData} options={combinedChartOptions} />
+                <div className="pt-4 w-[50rem]">
+                  <Bar ref={chartRef} data={combinedChartData} options={combinedChartOptions} plugins={[ChartDataLabels]}/>
                 </div>
               </div>
             ) : (
@@ -2082,46 +2186,7 @@ const transformedData = useMemo(() => {
           </div>
         )}
       </div>
-      <div className="p-6 w-[50rem]">
-        <p className="font-bold ">Filtered Revenue Report</p>
-        <p className="text-sm text-gray-600 italic py-4">
-          This chart shows the filtered revenue data over different time periods.
-        </p>
-        <Menu shadow="md" width={130}>
-          <Menu.Target>
-            <Button className="secondary-button">View By: {viewBy[activeView] || 'Select'}</Button>
-          </Menu.Target>
-          <Menu.Dropdown>
-            {list.map(({ label, value }) => (
-              <Menu.Item
-                key={value}
-                onClick={() => handleMenuItemClick(value)}
-                className={classNames(
-                  activeView === value && label !== 'Reset' && 'text-purple-450 font-medium',
-                )}
-              >
-                {label}
-              </Menu.Item>
-            ))}
-          </Menu.Dropdown>
-        </Menu>
-
-        {filter && (
-          <Button onClick={handleReset} className="mx-2 secondary-button">
-            Reset
-          </Button>
-        )}
-
-        {filter === 'customDate' && (
-          <div className="flex flex-col items-start space-y-4 py-2 ">
-            <DateRangeSelector dateValue={[startDate2, endDate2]} onChange={onDateChange} />
-          </div>
-        )}
-
-        <div className="my-4">
-          <Line data={chartData1} options={chartOptions1} />
-        </div>
-      </div>
+      
       <div className="flex flex-col col-span-10 overflow-x-hidden">
         <div className="pt-6 w-[50rem] mx-10">
           <p className="font-bold ">Tag Wise Filtered Revenue Report</p>
@@ -2185,8 +2250,8 @@ const transformedData = useMemo(() => {
             <Line data={chartData3} options={chartOptions3} />
           </div>
         </div>
-        <div className="col-span-12 md:col-span-12 lg:col-span-10 border-gray-450 mx-10">
-          <Table COLUMNS={tableColumns3} data={tableData3} />
+        <div className="col-span-12 md:col-span-12 lg:col-span-10 border-gray-450 mx-10  h-[400px]">
+          <Table COLUMNS={tableColumns3} data={tableData3} showPagination={false} />
         </div>
       </div>
 
@@ -2197,7 +2262,12 @@ const transformedData = useMemo(() => {
           by cities.
         </p>
         <div className="overflow-y-auto h-[400px]">
-          <Table data={processedData || []} COLUMNS={columns3} loading={isLoadingInventoryData} />
+          <Table
+            data={processedData || []}
+            COLUMNS={columns3}
+            loading={isLoadingInventoryData}
+            showPagination={false}
+          />
         </div>
       </div>
       <div className="col-span-12 md:col-span-12 lg:col-span-10 p-5 overflow-hidden">
@@ -2236,7 +2306,12 @@ const transformedData = useMemo(() => {
         </div>
         <div className="flex flex-col lg:flex-row gap-10  overflow-x-auto">
           <div className="overflow-y-auto w-[600px] h-[400px]">
-            <Table data={groupedData1 || []} COLUMNS={column1} loading={isLoadingInventoryData} />
+            <Table
+              data={groupedData1 || []}
+              COLUMNS={column1}
+              loading={isLoadingInventoryData}
+              showPagination={false}
+            />
           </div>
           <div className="flex flex-col">
             <p className="pb-6 font-bold text-center">Invoice Raised Vs Amount Collected</p>
@@ -2258,6 +2333,72 @@ const transformedData = useMemo(() => {
           table.
         </p>
         <PerformanceCard />
+      </div>
+      <div className='px-5'>
+      <p className="font-bold py-4">Campaigns stats report</p>
+      <div className="flex w-1/3 gap-4 h-[250px] ">
+      
+        <div className="flex gap-4 p-4 border rounded-md items-center min-h-[200px]">
+          <div className="w-32">
+            {isStatsLoading ? (
+              <Loader className="mx-auto" />
+            ) : stats?.printOngoing === 0 && stats?.printCompleted === 0 ? (
+              <p className="text-center">NA</p>
+            ) : (
+              <Doughnut options={config.options} data={printStatusData} />
+            )}
+          </div>
+          <div>
+            <p className="font-medium">Printing Status</p>
+            <div className="flex gap-8 mt-6 flex-wrap">
+              <div className="flex gap-2 items-center">
+                <div className="h-2 w-1 p-2 bg-orange-350 rounded-full" />
+                <div>
+                  <p className="my-2 text-xs font-light text-slate-400">Ongoing</p>
+                  <p className="font-bold text-lg">{stats?.printOngoing ?? 0}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                <div className="h-2 w-1 p-2 rounded-full bg-purple-350" />
+                <div>
+                  <p className="my-2 text-xs font-light text-slate-400">Completed</p>
+                  <p className="font-bold text-lg">{stats?.printCompleted ?? 0}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-4 p-4 border rounded-md items-center min-h-[200px]">
+          <div className="w-32">
+            {isStatsLoading ? (
+              <Loader className="mx-auto" />
+            ) : stats?.mountOngoing === 0 && stats?.mountCompleted === 0 ? (
+              <p className="text-center">NA</p>
+            ) : (
+              <Doughnut options={config.options} data={mountStatusData} />
+            )}
+          </div>
+          <div>
+            <p className="font-medium">Mounting Status</p>
+            <div className="flex gap-8 mt-6 flex-wrap">
+              <div className="flex gap-2 items-center">
+                <div className="h-2 w-1 p-2 bg-orange-350 rounded-full" />
+                <div>
+                  <p className="my-2 text-xs font-light text-slate-400">Ongoing</p>
+                  <p className="font-bold text-lg">{stats?.mountOngoing ?? 0}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                <div className="h-2 w-1 p-2 rounded-full bg-purple-350" />
+                <div>
+                  <p className="my-2 text-xs font-light text-slate-400">Completed</p>
+                  <p className="font-bold text-lg">{stats?.mountCompleted ?? 0}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       </div>
     </div>
   );

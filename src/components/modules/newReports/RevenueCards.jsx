@@ -2,12 +2,13 @@ import { useEffect } from 'react';
 import { Text, Image } from '@mantine/core';
 import OngoingOrdersIcon from '../../../assets/ongoing-orders.svg';
 import InitiateDiscussionIcon from '../../../assets/message-share.svg';
+import TotalRevenueIcon from '../../../assets/total-revenue.svg';
 import { useSearchParams } from 'react-router-dom';
-import { useBookings } from '../../../apis/queries/booking.queries';
+import { useBookingReportByRevenueStats, useBookings } from '../../../apis/queries/booking.queries';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween'; // Import the isBetween plugin
 import advancedFormat from 'dayjs/plugin/advancedFormat'; // Optional: for better date formatting
-
+import toIndianCurrency from '../../../utils/currencyFormat';
 dayjs.extend(isBetween); // Extend dayjs with the isBetween plugin
 dayjs.extend(advancedFormat); // Optional: For advanced date formatting
 
@@ -26,6 +27,7 @@ const RevenueCards = () => {
     error,
   } = useBookings(searchParams.toString());
 
+  const { data: revenueData } = useBookingReportByRevenueStats();
   // Helper function to calculate MTD revenue and range
   const getMonthToDateRevenue = (bookings) => {
     const startOfMonth = dayjs().startOf('month');
@@ -93,20 +95,25 @@ const RevenueCards = () => {
         This report shows total revenue Cards.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="border rounded p-8 flex-1">
+        <Image src={TotalRevenueIcon} alt="folder" fit="contain" height={24} width={24} />
+        <p className="my-2 text-sm font-light text-slate-400">Total Revenue (till date)</p>
+        <p className="font-bold text-green-500">{toIndianCurrency(revenueData?.revenue ?? 0)}</p>
+      </div>
         {cardData.map(({ title, data }) => (
           <div className="border rounded p-8 flex-1" key={title}>
             <Image src={data.icon} alt="icon" height={24} width={24} fit="contain" />
-            <Text className="my-2 text-sm font-semibold ">{title}</Text>
+            <Text className="my-2 text-sm font-light text-slate-400">{title}</Text>
             <Text size="xs" weight="400">
               ({data.name}) {/* Date range displayed here */}
             </Text>
-            <Text size="sm" weight="200">
+            <p size="sm" weight="200">
               {data.label}:{' '}
               <span className="font-bold" style={{ color: data.color }}>
                 {' '}
                 {data.value}
               </span>
-            </Text>
+            </p>
           </div>
         ))}
       </div>
