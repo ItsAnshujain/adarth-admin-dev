@@ -39,4 +39,4 @@ jobs:
         run: docker rm -f adarth-admin-dev-container || true 
         
       - name: Run docker container
-        run: docker run -d -p 5173:4173 --name adarth-admin-container anshujain24/adarth-admin-dev:latest
+        run: docker run -d -p 5173:4173 --name adarth-admin-dev-container anshujain24/adarth-admin-dev:latest
